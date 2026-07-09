@@ -14,15 +14,29 @@ import models
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+# Load local .env file manually if it exists (very helpful when running locally)
+if os.path.exists(".env"):
+    try:
+        with open(".env", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    os.environ[key.strip()] = val.strip().strip('"').strip("'")
+        logger.info("Loaded environment variables from local .env file.")
+    except Exception as e:
+        logger.warning(f"Could not load .env file: {e}")
+
 # Initialize database
 models.init_db()
 
 # Read Bot Token from environment variable
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-if not BOT_TOKEN or BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
-    # Fallback to the user's active token
-    BOT_TOKEN = "8996262600:AAHnGkUjtl-SLjWXmYgWCGwYqFlVd5a0DNo"
+if not BOT_TOKEN or BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN_HERE" or BOT_TOKEN == "8996262600:AAHnGkUjtl-SLjWXmYgWCGwYqFlVd5a0DNo":
+    # Use user's active token as fallback
+    BOT_TOKEN = "8996262600:AAH1Ml6SK1egdTR7w5vLD7veH5wRo5xOFwQ"
+
 
 # Initialize Bot and Dispatcher
 bot = Bot(token=BOT_TOKEN)
@@ -299,6 +313,13 @@ async def main():
         sys.exit(1)
         
     logger.info("Starting Slotjack telegram bot...")
+    # Clean webhook and clear pending updates to resolve ConflictError/polling issues
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook cleared successfully and pending updates dropped.")
+    except Exception as e:
+        logger.warning(f"Failed to delete webhook: {e}")
+        
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

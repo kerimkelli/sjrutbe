@@ -5,8 +5,18 @@ echo "=========================================================="
 echo "🚀 Slotjack Telegram Bot & Web Dashboard Launcher"
 echo "=========================================================="
 
-# Export token just in case
-export TELEGRAM_BOT_TOKEN="8996262600:AAHnGkUjtl-SLjWXmYgWCGwYqFlVd5a0DNo"
+# Check for TELEGRAM_BOT_TOKEN
+if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+    if [ -f .env ]; then
+        # Load token from .env if present
+        export $(grep -v '^#' .env | xargs)
+    fi
+fi
+
+# Set default token if empty
+if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+    export TELEGRAM_BOT_TOKEN="8996262600:AAH1Ml6SK1egdTR7w5vLD7veH5wRo5xOFwQ"
+fi
 
 # Check if Python is installed
 if ! command -v python3 &> /dev/null

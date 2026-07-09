@@ -6,8 +6,19 @@ echo ==========================================================
 echo 🎰 Slotjack Telegram Bot ^& Web Dashboard Launcher
 echo ==========================================================
 
-:: Set the Bot Token
-set TELEGRAM_BOT_TOKEN=8996262600:AAHnGkUjtl-SLjWXmYgWCGwYqFlVd5a0DNo
+:: Set the Bot Token if not already set
+if "%TELEGRAM_BOT_TOKEN%"=="" (
+    if exist .env (
+        for /f "usebackq tokens=1,2 delims==" %%i in (".env") do (
+            if "%%i"=="TELEGRAM_BOT_TOKEN" set TELEGRAM_BOT_TOKEN=%%j
+        )
+    )
+)
+
+:: Use default token if still empty
+if "%TELEGRAM_BOT_TOKEN%"=="" (
+    set TELEGRAM_BOT_TOKEN=8996262600:AAH1Ml6SK1egdTR7w5vLD7veH5wRo5xOFwQ
+)
 
 :: Check if Python is installed
 python --version >nul 2>&1
@@ -34,7 +45,7 @@ echo 👉 Web Panel will be accessible at http://localhost:5000
 echo ----------------------------------------------------------
 
 :: Start bot in a background process window, and app in current window
-start cmd /k "call venv\Scripts\activate.bat && set TELEGRAM_BOT_TOKEN=8996262600:AAHnGkUjtl-SLjWXmYgWCGwYqFlVd5a0DNo && python bot.py"
+start cmd /k "call venv\Scripts\activate.bat && set TELEGRAM_BOT_TOKEN=%TELEGRAM_BOT_TOKEN% && python bot.py"
 python app.py
 
 pause
