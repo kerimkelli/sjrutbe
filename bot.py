@@ -76,21 +76,12 @@ def is_real_admin(member: types.ChatMember) -> bool:
         return any(admin_privileges)
     return False
 
-# Support set_chat_member_tag safely using Telegram's native API method (released in 2026)
+# Support set_chat_member_tag safely using Telegram's native API method (which sets tags on regular members directly)
 async def custom_set_chat_member_tag(chat_id: int, user_id: int, tag: str):
     try:
-        logger.info(f"Setting custom member tag '{tag}' for user {user_id} in chat {chat_id}")
+        logger.info(f"Setting custom member tag '{tag}' for user {user_id} in chat {chat_id} using native Telegram API")
         
-        # 1. Attempt to call native aiogram set_chat_member_tag if available
-        if hasattr(bot, "set_chat_member_tag"):
-            try:
-                await bot.set_chat_member_tag(chat_id=chat_id, user_id=user_id, tag=tag)
-                logger.info("Successfully set member tag using native bot.set_chat_member_tag")
-                return
-            except Exception as native_err:
-                logger.warning(f"Native set_chat_member_tag failed, falling back to direct HTTP: {native_err}")
-
-        # 2. Robust fallback directly to Telegram Bot API endpoint
+        # Call the Telegram Bot API endpoint setChatMemberTag directly
         import aiohttp
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/setChatMemberTag"
         payload = {
@@ -100,13 +91,20 @@ async def custom_set_chat_member_tag(chat_id: int, user_id: int, tag: str):
         }
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as response:
-                result = await response.json()
-                if result.get("ok"):
-                    logger.info("Successfully set member tag using raw setChatMemberTag API")
-                else:
-                    logger.error(f"Raw setChatMemberTag API returned error: {result}")
+                status = response.status
+                text = await response.text()
+                try:
+                    result = await response.json()
+                    if result.get("ok"):
+                        logger.info(f"Successfully set member tag using raw setChatMemberTag API: {result}")
+                        return True
+                    else:
+                        logger.error(f"Raw setChatMemberTag API returned error (status {status}): {text}")
+                except Exception as json_err:
+                    logger.error(f"Failed to parse JSON response from raw setChatMemberTag API (status {status}): {text}, err: {json_err}")
     except Exception as e:
         logger.error(f"Error in custom_set_chat_member_tag for user {user_id}: {e}")
+    return False
 
 bot.set_chat_member_tag = custom_set_chat_member_tag
 
