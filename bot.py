@@ -33,9 +33,15 @@ models.init_db()
 # Read Bot Token from environment variable
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
+if BOT_TOKEN:
+    BOT_TOKEN = BOT_TOKEN.strip().strip('"').strip("'")
+
 if not BOT_TOKEN or BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN_HERE" or BOT_TOKEN == "8996262600:AAHnGkUjtl-SLjWXmYgWCGwYqFlVd5a0DNo":
     # Use user's active token as fallback
     BOT_TOKEN = "8996262600:AAH1Ml6SK1egdTR7w5vLD7veH5wRo5xOFwQ"
+else:
+    # Just in case, clean up any external input token too
+    BOT_TOKEN = BOT_TOKEN.strip().strip('"').strip("'")
 
 
 # Initialize Bot and Dispatcher

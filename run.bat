@@ -45,7 +45,7 @@ echo 👉 Web Panel will be accessible at http://localhost:5000
 echo ----------------------------------------------------------
 
 :: Start bot in a background process window, and app in current window
-start cmd /k "call venv\Scripts\activate.bat && set TELEGRAM_BOT_TOKEN=%TELEGRAM_BOT_TOKEN% && python bot.py"
+start cmd /k "call venv\Scripts\activate.bat && set "TELEGRAM_BOT_TOKEN=%TELEGRAM_BOT_TOKEN%" && python bot.py"
 python app.py
 
 pause
