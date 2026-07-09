@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slotjack - Yönetici Girişi</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #121214;
+            color: #f1f1f1;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .login-card {
+            background: linear-gradient(145deg, #1d1d23, #151518);
+            border: 1px solid #d4af37; /* Gold Border */
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            padding: 40px;
+            max-width: 450px;
+            width: 100%;
+        }
+        .logo-text {
+            color: #d4af37;
+            font-weight: 800;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(212, 175, 55, 0.3);
+            text-align: center;
+            margin-bottom: 5px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #8a8a93;
+            font-size: 0.9rem;
+            margin-bottom: 30px;
+        }
+        .form-control {
+            background-color: #0f0f11;
+            border: 1px solid #2d2d35;
+            color: #ffffff;
+            padding: 12px;
+            border-radius: 8px;
+        }
+        .form-control:focus {
+            background-color: #0f0f11;
+            border-color: #d4af37;
+            color: #ffffff;
+            box-shadow: 0 0 0 0.25rem rgba(212, 175, 55, 0.15);
+        }
+        .btn-gold {
+            background-color: #d4af37;
+            color: #121214;
+            font-weight: 600;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 15px;
+        }
+        .btn-gold:hover {
+            background-color: #ffdf7a;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(212, 175, 55, 0.4);
+            color: #121214;
+        }
+        .alert {
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="login-card">
+        <h1 class="logo-text">🎰 SLOTJACK</h1>
+        <div class="subtitle">Telegram Rütbe Botu Yönetim Paneli</div>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category if category != 'error' else 'danger' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Kapat"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form action="{{ url_for('login') }}" method="POST">
+            <div class="mb-4">
+                <label for="password" class="form-label text-warning" style="font-size: 0.85rem; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;">Yönetici Giriş Şifresi</label>
+                <input type="password" class="form-control" id="password" name="password" placeholder="Şifrenizi girin..." required autocomplete="current-password">
+            </div>
+            
+            <button type="submit" class="btn-gold">Giriş Yap 🃏</button>
+        </form>
+    </div>
+
+    <!-- Bootstrap 5 Bundle JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

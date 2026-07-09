@@ -1,0 +1,6 @@
+{
+  "name": "Slotjack Bot & Panel",
+  "description": "Telegram Rütbe Botu ve Canlı Web Yönetim Paneli",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
