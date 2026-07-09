@@ -128,10 +128,92 @@ async function initDb() {
 
 initDb();
 
-// Level formula helper
-function calculateLevel(xp: number): number {
+// Level formula helpers
+async function calculateLevel(xp: number): Promise<number> {
   if (xp < 0) return 1;
-  return Math.floor(Math.sqrt(xp / 100.0)) + 1;
+  try {
+    const ranks = await dbAll("SELECT * FROM ranks ORDER BY id ASC");
+    const milestones: { globalLevel: number; subLevel: number; xpNeeded: number }[] = [];
+    let accXp = 0;
+    for (const rank of ranks) {
+      const maxLvl = rank.max_rank_level ?? 5;
+      const xpPerLvl = rank.xp_per_level ?? 100;
+      for (let s = 1; s <= maxLvl; s++) {
+        milestones.push({
+          globalLevel: milestones.length + 1,
+          subLevel: s,
+          xpNeeded: accXp
+        });
+        accXp += xpPerLvl;
+      }
+    }
+    
+    let activeLevel = 1;
+    for (const m of milestones) {
+      if (xp >= m.xpNeeded) {
+        activeLevel = m.globalLevel;
+      } else {
+        break;
+      }
+    }
+    return activeLevel;
+  } catch (err) {
+    return Math.floor(Math.sqrt(xp / 100.0)) + 1;
+  }
+}
+
+async function getRankForLevel(level: number): Promise<{ bot_tag: string; telegram_tag: string; sub_level: number }> {
+  try {
+    const ranks = await dbAll("SELECT * FROM ranks ORDER BY id ASC");
+    const milestones: { globalLevel: number; subLevel: number; rank: any }[] = [];
+    let accXp = 0;
+    for (const rank of ranks) {
+      const maxLvl = rank.max_rank_level ?? 5;
+      const xpPerLvl = rank.xp_per_level ?? 100;
+      for (let s = 1; s <= maxLvl; s++) {
+        milestones.push({
+          globalLevel: milestones.length + 1,
+          subLevel: s,
+          rank
+        });
+        accXp += xpPerLvl;
+      }
+    }
+    
+    const idx = level - 1;
+    if (idx >= 0 && idx < milestones.length) {
+      const m = milestones[idx];
+      return {
+        bot_tag: m.rank.bot_tag,
+        telegram_tag: m.rank.telegram_tag,
+        sub_level: m.subLevel
+      };
+    }
+    if (ranks.length > 0) {
+      const last = ranks[ranks.length - 1];
+      const subLvl = level - milestones.length + 1;
+      return {
+        bot_tag: last.bot_tag,
+        telegram_tag: last.telegram_tag,
+        sub_level: subLvl > 0 ? subLvl : 1
+      };
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  return { bot_tag: "[👤 Üye]", telegram_tag: "Uye", sub_level: 1 };
+}
+
+async function recalculateRankBounds() {
+  const rows = await dbAll("SELECT id, max_rank_level FROM ranks ORDER BY id ASC");
+  let accumulatedLevels = 0;
+  for (const r of rows) {
+    const maxLvl = r.max_rank_level ?? 5;
+    const minG = accumulatedLevels + 1;
+    const maxG = accumulatedLevels + maxLvl;
+    await dbRun("UPDATE ranks SET min_level = ?, max_level = ? WHERE id = ?", [minG, maxG, r.id]);
+    accumulatedLevels = maxG;
+  }
 }
 
 // APIs
@@ -167,7 +249,7 @@ app.post("/api/settings", async (req, res) => {
 
 app.get("/api/ranks", async (req, res) => {
   try {
-    const rows = await dbAll("SELECT * FROM ranks ORDER BY min_level ASC");
+    const rows = await dbAll("SELECT * FROM ranks ORDER BY id ASC");
     res.json(rows);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -182,15 +264,46 @@ app.post("/api/ranks", async (req, res) => {
       let cleanTag = rank.telegram_tag || "";
       cleanTag = cleanTag.replace(/[^\w\s-]/gi, '').slice(0, 16).trim();
 
-      await dbRun("UPDATE ranks SET min_level = ?, max_level = ?, telegram_tag = ?, bot_tag = ? WHERE id = ?", [
-        rank.min_level,
-        rank.max_level,
+      await dbRun("UPDATE ranks SET telegram_tag = ?, bot_tag = ?, max_rank_level = ?, xp_per_level = ? WHERE id = ?", [
         cleanTag,
         rank.bot_tag,
+        rank.max_rank_level ?? 5,
+        rank.xp_per_level ?? 100,
         rank.id,
       ]);
     }
+    await recalculateRankBounds();
     res.json({ success: true, message: "Ranks updated successfully" });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/ranks/add", async (req, res) => {
+  try {
+    const { telegram_tag, bot_tag, max_rank_level, xp_per_level } = req.body;
+    let cleanTag = telegram_tag || "";
+    cleanTag = cleanTag.replace(/[^\w\s-]/gi, '').slice(0, 16).trim();
+    
+    await dbRun("INSERT INTO ranks (telegram_tag, bot_tag, max_rank_level, xp_per_level, min_level, max_level) VALUES (?, ?, ?, ?, 1, 1)", [
+      cleanTag,
+      bot_tag || "[👤 Üye]",
+      max_rank_level ?? 5,
+      xp_per_level ?? 100
+    ]);
+    await recalculateRankBounds();
+    res.json({ success: true, message: "Rank added successfully" });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/ranks/delete", async (req, res) => {
+  try {
+    const { id } = req.body;
+    await dbRun("DELETE FROM ranks WHERE id = ?", [id]);
+    await recalculateRankBounds();
+    res.json({ success: true, message: "Rank deleted successfully" });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -208,7 +321,7 @@ app.get("/api/users", async (req, res) => {
 app.post("/api/users/xp", async (req, res) => {
   try {
     const { user_id, xp } = req.body;
-    const level = calculateLevel(xp);
+    const level = await calculateLevel(xp);
     await dbRun("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", [xp, level, user_id]);
     res.json({ success: true, message: "User XP and Level updated successfully", level });
   } catch (error: any) {
@@ -301,7 +414,7 @@ app.post("/api/simulate-message", async (req, res) => {
     if (user) {
       const newXp = user.xp + xpPerMessage;
       const oldLevel = user.level;
-      const newLevel = calculateLevel(newXp);
+      const newLevel = await calculateLevel(newXp);
       const levelUp = newLevel > oldLevel;
 
       await dbRun("UPDATE users SET username = ?, xp = ?, level = ?, last_message_time = ? WHERE user_id = ?", [
@@ -313,14 +426,8 @@ app.post("/api/simulate-message", async (req, res) => {
       ]);
 
       // Fetch rank for the new level
-      const ranks = await dbAll("SELECT * FROM ranks ORDER BY min_level ASC");
-      let activeRank = ranks[ranks.length - 1]; // default fallback
-      for (const rank of ranks) {
-        if (newLevel >= rank.min_level && newLevel <= rank.max_level) {
-          activeRank = rank;
-          break;
-        }
-      }
+      const activeRank = await getRankForLevel(newLevel);
+      const botTagWithLvl = `${activeRank.bot_tag} LEVEL ${activeRank.sub_level}`;
 
       res.json({
         success: true,
@@ -332,16 +439,16 @@ app.post("/api/simulate-message", async (req, res) => {
         currentXp: newXp,
         username: cleanUsername,
         userId: user_id,
-        botTag: activeRank?.bot_tag || "[👤 Üye]",
-        telegramTag: activeRank?.telegram_tag || "Uye",
+        botTag: botTagWithLvl,
+        telegramTag: `${activeRank.telegram_tag} Lvl ${activeRank.sub_level}`,
         message: levelUp 
-          ? `🎉 TEBRİKLER! @${cleanUsername} Seviye Atladı! [Seviye ${oldLevel} ➡️ Seviye ${newLevel}]. Yeni Rütbesi: ${activeRank?.bot_tag}` 
+          ? `🎉 TEBRİKLER! @${cleanUsername} Seviye Atladı! [Seviye ${oldLevel} ➡️ Seviye ${newLevel}]. Yeni Rütbesi: ${botTagWithLvl}` 
           : `💬 @${cleanUsername} mesaj gönderdi ve +${xpPerMessage} XP kazandı! (Yeni XP: ${newXp})`
       });
     } else {
       // New user registration
       const newXp = xpPerMessage;
-      const newLevel = calculateLevel(newXp);
+      const newLevel = await calculateLevel(newXp);
       const levelUp = newLevel > 1;
 
       await dbRun("INSERT INTO users (user_id, username, xp, level, last_message_time) VALUES (?, ?, ?, ?, ?)", [
@@ -352,14 +459,8 @@ app.post("/api/simulate-message", async (req, res) => {
         currentTime,
       ]);
 
-      const ranks = await dbAll("SELECT * FROM ranks ORDER BY min_level ASC");
-      let activeRank = ranks[0];
-      for (const rank of ranks) {
-        if (newLevel >= rank.min_level && newLevel <= rank.max_level) {
-          activeRank = rank;
-          break;
-        }
-      }
+      const activeRank = await getRankForLevel(newLevel);
+      const botTagWithLvl = `${activeRank.bot_tag} LEVEL ${activeRank.sub_level}`;
 
       res.json({
         success: true,
@@ -371,8 +472,8 @@ app.post("/api/simulate-message", async (req, res) => {
         currentXp: newXp,
         username: cleanUsername,
         userId: user_id,
-        botTag: activeRank?.bot_tag || "[👤 Üye]",
-        telegramTag: activeRank?.telegram_tag || "Uye",
+        botTag: botTagWithLvl,
+        telegramTag: `${activeRank.telegram_tag} Lvl ${activeRank.sub_level}`,
         message: `🆕 @${cleanUsername} ilk defa gruba katıldı ve mesaj atarak +${xpPerMessage} XP kazandı! Seviye: ${newLevel}`
       });
     }

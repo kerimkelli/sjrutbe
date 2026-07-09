@@ -120,7 +120,8 @@ async def update_user_tag_if_needed(chat_id: int, user_id: int, member: types.Ch
     if not telegram_tag:
         return
         
-    clean_tag = telegram_tag[:16] # absolute safety limit for custom titles
+    sub_level = rank_info.get("sub_level", 1)
+    clean_tag = f"{telegram_tag} Lvl {sub_level}"[:16] # absolute safety limit for custom titles
     
     # Check cache first
     cache_key = (chat_id, user_id)
@@ -193,14 +194,18 @@ async def cmd_rank(message: Message):
     rank = models.get_rank_for_level(level, ranks)
     bot_tag = rank["bot_tag"] if rank else "[👤 Üye]"
     telegram_tag = rank["telegram_tag"] if rank else "Üye"
+    sub_level = rank.get("sub_level", 1) if rank else 1
+    
+    formatted_bot_tag = f"{bot_tag} LEVEL {sub_level}"
+    formatted_telegram_tag = f"{telegram_tag} Lvl {sub_level}"
     
     response = (
         f"<b>🃏 {message.from_user.full_name} Profil Kartı</b>\n"
         "───────────────────\n"
-        f"🏆 <b>Rütbe:</b> {bot_tag}\n"
+        f"🏆 <b>Rütbe:</b> {formatted_bot_tag}\n"
         f"⭐️ <b>Seviye:</b> {level}\n"
         f"✨ <b>Toplam XP:</b> {xp} / {next_level_xp} XP\n"
-        f"🏷 <b>Telegram Etiketi:</b> <code>{telegram_tag}</code>\n"
+        f"🏷 <b>Telegram Etiketi:</b> <code>{formatted_telegram_tag}</code>\n"
         "───────────────────\n"
         f"📈 <b>İlerleme:</b>\n<code>{progress_bar}</code>"
     )
@@ -224,9 +229,11 @@ async def cmd_liderler(message: Message):
         username_str = f"@{user['username']}" if user['username'] else f"ID:{user['user_id']}"
         rank = models.get_rank_for_level(user['level'], ranks)
         tag_icon = rank['bot_tag'] if rank else "[👤]"
+        sub_level = rank.get("sub_level", 1) if rank else 1
+        formatted_icon = f"{tag_icon} Lvl {sub_level}"
         
         medal = medals[idx] if idx < len(medals) else "🔹"
-        response += f"{medal} <b>{username_str}</b> - Seviye {user['level']} ({user['xp']} XP) {tag_icon}\n"
+        response += f"{medal} <b>{username_str}</b> - Seviye {user['level']} ({user['xp']} XP) {formatted_icon}\n"
         
     response += "───────────────────────────\n"
     response += "💬 Sohbet ederek liderliğe tırman!"

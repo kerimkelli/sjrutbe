@@ -35,6 +35,8 @@ interface Rank {
   max_level: number;
   telegram_tag: string;
   bot_tag: string;
+  max_rank_level?: number;
+  xp_per_level?: number;
 }
 
 interface User {
@@ -66,6 +68,13 @@ export default function App() {
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
   const [statusMsg, setStatusMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // Add Rank states
+  const [showAddRankModal, setShowAddRankModal] = useState(false);
+  const [newRankTelegramTag, setNewRankTelegramTag] = useState("");
+  const [newRankBotTag, setNewRankBotTag] = useState("");
+  const [newRankMaxLevel, setNewRankMaxLevel] = useState(5);
+  const [newRankXpPerLevel, setNewRankXpPerLevel] = useState(100);
+
   // Edit XP Modal state
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editXpVal, setEditXpVal] = useState<number>(0);
@@ -87,6 +96,73 @@ export default function App() {
   const [selectedFile, setSelectedFile] = useState<string>("bot.py");
   const [fileContent, setFileContent] = useState<string>("");
   const [copied, setCopied] = useState(false);
+
+  // Dynamic Milestone & Level Calculation helpers for UI
+  const getMilestones = (ranksList: Rank[]) => {
+    const sortedRanks = [...ranksList].sort((a, b) => a.id - b.id);
+    let accumulatedXp = 0;
+    const milestones = [];
+    for (const r of sortedRanks) {
+      const maxLvl = r.max_rank_level ?? 5;
+      const xpPerLvl = r.xp_per_level ?? 100;
+      for (let s = 1; s <= maxLvl; s++) {
+        milestones.push({
+          global_level: milestones.length + 1,
+          sub_level: s,
+          rank: r,
+          xp_needed: accumulatedXp,
+          xp_per_level: xpPerLvl
+        });
+        accumulatedXp += xpPerLvl;
+      }
+    }
+    return milestones;
+  };
+
+  const calculateLevel = (xp: number, ranksList: Rank[]) => {
+    if (xp < 0) return 1;
+    const milestones = getMilestones(ranksList);
+    if (milestones.length === 0) return 1;
+    let level = 1;
+    for (const m of milestones) {
+      if (xp >= m.xp_needed) {
+        level = m.global_level;
+      } else {
+        break;
+      }
+    }
+    return level;
+  };
+
+  const getRankAndLevelInfo = (xp: number, ranksList: Rank[]) => {
+    const milestones = getMilestones(ranksList);
+    const lvl = calculateLevel(xp, ranksList);
+    const idx = lvl - 1;
+    let currentMilestone = null;
+    let nextMilestone = null;
+
+    if (idx >= 0 && idx < milestones.length) {
+      currentMilestone = milestones[idx];
+    }
+    if (idx + 1 >= 0 && idx + 1 < milestones.length) {
+      nextMilestone = milestones[idx + 1];
+    }
+
+    const currentRank = currentMilestone ? currentMilestone.rank : (ranksList[ranksList.length - 1] || null);
+    const subLvl = currentMilestone ? currentMilestone.sub_level : (lvl - milestones.length + 1);
+    
+    const xpNeededForCurrent = currentMilestone ? currentMilestone.xp_needed : 0;
+    const xpNeededForNext = nextMilestone ? nextMilestone.xp_needed : (currentMilestone ? currentMilestone.xp_needed + (currentMilestone.xp_per_level) : xp);
+
+    return {
+      global_level: lvl,
+      sub_level: subLvl,
+      rank: currentRank,
+      xpNeededForCurrent,
+      xpNeededForNext,
+      isMaxLevel: !nextMilestone
+    };
+  };
 
   // Load initial dashboard data
   const loadData = async () => {
@@ -149,6 +225,9 @@ export default function App() {
             const cleaned = value.replace(/[^\w\s-]/gi, "").slice(0, 16);
             return { ...r, [field]: cleaned };
           }
+          if (field === "max_rank_level" || field === "xp_per_level") {
+            return { ...r, [field]: parseInt(value) || 0 };
+          }
           return { ...r, [field]: value };
         }
         return r;
@@ -172,6 +251,59 @@ export default function App() {
       }
     } catch (err) {
       showStatus("error", "Sunucu ile bağlantı kurulamadı.");
+    }
+  };
+
+  const handleAddRank = async () => {
+    if (!newRankTelegramTag.trim() || !newRankBotTag.trim()) {
+      showStatus("error", "Lütfen tüm etiket alanlarını doldurun.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/ranks/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          telegram_tag: newRankTelegramTag,
+          bot_tag: newRankBotTag,
+          max_rank_level: newRankMaxLevel,
+          xp_per_level: newRankXpPerLevel
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showStatus("success", "Yeni rütbe başarıyla eklendi!");
+        setShowAddRankModal(false);
+        setNewRankTelegramTag("");
+        setNewRankBotTag("");
+        setNewRankMaxLevel(5);
+        setNewRankXpPerLevel(100);
+        loadData();
+      } else {
+        showStatus("error", "Yeni rütbe eklenirken bir hata oluştu.");
+      }
+    } catch (err) {
+      showStatus("error", "Sunucu bağlantı hatası.");
+    }
+  };
+
+  const handleDeleteRank = async (id: number) => {
+    if (!confirm("Bu rütbeyi silmek istediğinizden emin misiniz? Küresel seviye hesaplamaları otomatik olarak yeniden dengelenecektir.")) return;
+    try {
+      const res = await fetch("/api/ranks/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showStatus("success", "Rütbe silindi ve seviyeler yeniden dengelendi!");
+        loadData();
+      } else {
+        showStatus("error", "Rütbe silinirken bir hata oluştu.");
+      }
+    } catch (err) {
+      showStatus("error", "Sunucu bağlantı hatası.");
     }
   };
 
@@ -485,36 +617,45 @@ export default function App() {
                           <Trophy className="w-5 h-5 text-accent" />
                           <h2 className="font-bold text-text text-base">Rütbe & Telegram Etiketleri</h2>
                         </div>
-                        <button
-                          onClick={handleSaveRanks}
-                          className="bg-accent/10 hover:bg-accent hover:text-white text-accent font-bold px-3.5 py-1.5 rounded-md text-xs transition-all border border-accent/20 cursor-pointer"
-                        >
-                          Rütbeleri Kaydet
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowAddRankModal(true)}
+                            className="bg-emerald-600/10 hover:bg-emerald-600 hover:text-white text-emerald-400 font-bold px-3.5 py-1.5 rounded-md text-xs transition-all border border-emerald-500/20 cursor-pointer flex items-center gap-1"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Rütbe Ekle
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSaveRanks}
+                            className="bg-accent/10 hover:bg-accent hover:text-white text-accent font-bold px-3.5 py-1.5 rounded-md text-xs transition-all border border-accent/20 cursor-pointer"
+                          >
+                            Rütbeleri Kaydet
+                          </button>
+                        </div>
                       </div>
 
                       <div className="space-y-4 max-h-[390px] overflow-y-auto pr-1">
                         {ranks.map((r) => (
-                          <div key={r.id} className="bg-black/20 p-4 border border-border rounded-lg space-y-3">
-                            <div className="flex justify-between items-center">
+                          <div key={r.id} className="bg-black/20 p-4 border border-border rounded-lg space-y-3 relative group">
+                            
+                            {/* Delete Rank Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteRank(r.id)}
+                              className="absolute top-4 right-4 text-muted hover:text-accent p-1 rounded hover:bg-black/40 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                              title="Bu rütbeyi sil"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+
+                            <div className="flex justify-between items-center pr-6">
                               <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${getRankBadgeClass(r.min_level)}`}>
                                 RÜTBE #{r.id}
                               </span>
-                              <div className="flex items-center gap-1.5 text-xs text-muted font-medium font-mono">
-                                Seviye Aralığı: 
-                                <input
-                                  type="number"
-                                  value={r.min_level}
-                                  onChange={(e) => handleUpdateRankField(r.id, "min_level", parseInt(e.target.value) || 0)}
-                                  className="w-12 bg-black/40 border border-border rounded py-0.5 px-1.5 text-center text-accent font-bold"
-                                />
-                                -
-                                <input
-                                  type="number"
-                                  value={r.max_level}
-                                  onChange={(e) => handleUpdateRankField(r.id, "max_level", parseInt(e.target.value) || 0)}
-                                  className="w-12 bg-black/40 border border-border rounded py-0.5 px-1.5 text-center text-accent font-bold"
-                                />
+                              <div className="text-[11px] text-muted font-bold font-mono bg-black/30 px-2 py-0.5 rounded border border-border">
+                                Global Seviyeler: <span className="text-accent">{r.min_level} - {r.max_level}</span>
                               </div>
                             </div>
 
@@ -547,12 +688,42 @@ export default function App() {
                                 <span className="text-[9px] text-muted mt-0.5 block">Level-up mesajları ve /rank profil ekranlarında kullanılır.</span>
                               </div>
                             </div>
+
+                            <div className="grid grid-cols-2 gap-3 pt-1">
+                              <div>
+                                <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">
+                                  Kendi İç Seviye Sayısı
+                                </label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="100"
+                                  value={r.max_rank_level ?? 5}
+                                  onChange={(e) => handleUpdateRankField(r.id, "max_rank_level", e.target.value)}
+                                  className="w-full bg-black/40 border border-border focus:border-accent/50 rounded px-2.5 py-1 text-xs font-mono font-bold text-accent"
+                                />
+                                <span className="text-[9px] text-muted mt-0.5 block">Rütbedeki alt seviyeler (örn. Level 1 - 5).</span>
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">
+                                  Seviye Başına XP
+                                </label>
+                                <input
+                                  type="number"
+                                  min="10"
+                                  value={r.xp_per_level ?? 100}
+                                  onChange={(e) => handleUpdateRankField(r.id, "xp_per_level", e.target.value)}
+                                  className="w-full bg-black/40 border border-border focus:border-accent/50 rounded px-2.5 py-1 text-xs font-mono font-bold text-accent"
+                                />
+                                <span className="text-[9px] text-muted mt-0.5 block">Her alt seviye atlamak için gereken XP miktarı.</span>
+                              </div>
+                            </div>
+
                           </div>
                         ))}
                       </div>
                     </div>
                   </div>
-
                 </div>
                                    {/* Bölüm 2: Üye Listesi */}
                 <div className="bg-card border border-border rounded-xl p-6 shadow-xl">
@@ -580,7 +751,7 @@ export default function App() {
                       </thead>
                       <tbody className="divide-y divide-border/50">
                         {users.map((u) => {
-                          const userRank = ranks.find((r) => u.level >= r.min_level && u.level <= r.max_level) || ranks[ranks.length - 1];
+                          const info = getRankAndLevelInfo(u.xp, ranks);
                           return (
                             <tr key={u.user_id} className="hover:bg-black/20 transition-colors">
                               <td className="py-3 px-4 font-mono text-muted font-semibold">{u.user_id}</td>
@@ -596,7 +767,10 @@ export default function App() {
                                 </span>
                               </td>
                               <td className="py-3 px-4">
-                                <span className="text-text/80 font-medium">{userRank?.bot_tag || "[👤 Üye]"}</span>
+                                <span className="text-text/80 font-semibold font-mono bg-black/20 px-2 py-1 rounded border border-border flex items-center gap-1.5 w-fit">
+                                  <span>{info.rank ? info.rank.bot_tag : "[👤 Üye]"}</span>
+                                  <span className="text-accent text-[10px] font-black uppercase">LEVEL {info.sub_level}</span>
+                                </span>
                               </td>
                               <td className="py-3 px-4 text-right space-x-2">
                                 <button
@@ -646,10 +820,18 @@ export default function App() {
                           />
                         </div>
 
-                        <div className="bg-black/40 p-3 rounded-lg border border-border text-[11px] text-muted space-y-1">
-                          <p className="font-bold text-text/80">Formüle Göre Hesaplama:</p>
-                          <p>Hesaplanan Seviye: <b>{Math.floor(Math.sqrt(editXpVal / 100)) + 1}</b></p>
-                          <p>Sonraki Seviye XP: <b>{100 * Math.pow(Math.floor(Math.sqrt(editXpVal / 100)) + 1, 2)} XP</b></p>
+                        <div className="bg-black/40 p-3 rounded-lg border border-border text-[11px] text-muted space-y-1.5 text-left">
+                          <p className="font-bold text-text/80">Dinamik Rütbe Hesaplama:</p>
+                          {(() => {
+                            const info = getRankAndLevelInfo(editXpVal, ranks);
+                            return (
+                              <>
+                                <p>Küresel Seviye: <b className="text-accent">{info.global_level}</b></p>
+                                <p>Rütbe Seviyesi: <b className="text-accent">{info.rank ? info.rank.bot_tag : "[👤 Üye]"} LEVEL {info.sub_level}</b></p>
+                                <p>Sonraki Seviye İçin Gereken: <b className="text-text">{info.isMaxLevel ? "Maksimum Seviye" : `${info.xpNeededForNext} XP`}</b></p>
+                              </>
+                            );
+                          })()}
                         </div>
 
                         <div className="flex gap-3 pt-2">
@@ -664,6 +846,96 @@ export default function App() {
                             className="flex-1 bg-accent hover:bg-accent-hover text-white font-bold py-2 rounded-lg text-xs transition-all cursor-pointer"
                           >
                             Değişiklikleri Kaydet
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Add Rank Modal Dialog */}
+                {showAddRankModal && (
+                  <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-card border border-border rounded-xl max-w-md w-full p-6 shadow-2xl animate-in zoom-in-95 duration-150 text-left">
+                      <h3 className="text-base font-bold text-accent mb-2">Yeni Rütbe Tanımı Ekle</h3>
+                      <p className="text-xs text-muted mb-4">
+                        Sisteme yeni bir rütbe ekleyin. Küresel seviye aralığı bu rütbenin iç seviye sayısına göre otomatik olarak hesaplanacaktır.
+                      </p>
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">
+                            Telegram Etiketi (Kısa, Emojisiz)
+                          </label>
+                          <input
+                            type="text"
+                            maxLength={16}
+                            value={newRankTelegramTag}
+                            onChange={(e) => setNewRankTelegramTag(e.target.value.replace(/[^\w\s-]/gi, "").slice(0, 16))}
+                            placeholder="Örn: Izleyici"
+                            className="w-full bg-black/40 border border-border focus:border-accent/50 rounded px-2.5 py-1.5 text-xs font-mono font-bold text-text outline-none"
+                          />
+                          <span className="text-[9px] text-muted mt-0.5 block">Telegram sınırı: Maks 16 Karakter, Emojisiz.</span>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">
+                            Bot Mesaj Etiketi (Tam, Emojili)
+                          </label>
+                          <input
+                            type="text"
+                            value={newRankBotTag}
+                            onChange={(e) => setNewRankBotTag(e.target.value)}
+                            placeholder="Örn: [🎰 İzleyici]"
+                            className="w-full bg-black/40 border border-border focus:border-accent/50 rounded px-2.5 py-1.5 text-xs font-mono font-bold text-text outline-none"
+                          />
+                          <span className="text-[9px] text-muted mt-0.5 block">Kullanıcı profili ve level-up mesajlarında görünen ad.</span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">
+                              Kendi İç Seviye Sayısı
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="100"
+                              value={newRankMaxLevel}
+                              onChange={(e) => setNewRankMaxLevel(parseInt(e.target.value) || 1)}
+                              className="w-full bg-black/40 border border-border focus:border-accent/50 rounded px-2.5 py-1 text-xs font-mono font-bold text-accent outline-none"
+                            />
+                            <span className="text-[9px] text-muted mt-0.5 block">Rütbedeki alt seviyeler (örn. 5).</span>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">
+                              Seviye Başına XP
+                            </label>
+                            <input
+                              type="number"
+                              min="10"
+                              value={newRankXpPerLevel}
+                              onChange={(e) => setNewRankXpPerLevel(parseInt(e.target.value) || 10)}
+                              className="w-full bg-black/40 border border-border focus:border-accent/50 rounded px-2.5 py-1 text-xs font-mono font-bold text-accent outline-none"
+                            />
+                            <span className="text-[9px] text-muted mt-0.5 block">Her alt seviye için XP gereksinimi.</span>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowAddRankModal(false)}
+                            className="flex-1 bg-black hover:bg-neutral-900 text-muted hover:text-text border border-border font-bold py-2 rounded-lg text-xs transition-all cursor-pointer"
+                          >
+                            İptal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleAddRank}
+                            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg text-xs transition-all cursor-pointer"
+                          >
+                            Rütbe Ekle
                           </button>
                         </div>
                       </div>
