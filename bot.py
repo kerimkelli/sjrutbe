@@ -76,39 +76,42 @@ def is_real_admin(member: types.ChatMember) -> bool:
         return any(admin_privileges)
     return False
 
-# Monkeypatch Bot to support set_chat_member_tag safely for all members
+# Support set_chat_member_tag safely using Telegram's native API method (released in 2026)
 async def custom_set_chat_member_tag(chat_id: int, user_id: int, tag: str):
     try:
-        member = await bot.get_chat_member(chat_id, user_id)
-        if member.status not in ["administrator", "creator"]:
-            logger.info(f"Promoting user {user_id} in chat {chat_id} with no rights to set custom tag")
-            # Promote them with absolutely all privileges set to False
-            await bot.promote_chat_member(
-                chat_id=chat_id,
-                user_id=user_id,
-                can_manage_chat=False,
-                can_post_messages=False,
-                can_edit_messages=False,
-                can_delete_messages=False,
-                can_restrict_members=False,
-                can_invite_users=False,
-                can_change_info=False,
-                can_pin_messages=False,
-                can_promote_members=False,
-                can_manage_video_chats=False,
-                is_anonymous=False
-            )
+        logger.info(f"Setting custom member tag '{tag}' for user {user_id} in chat {chat_id}")
         
-        logger.info(f"Setting custom title '{tag}' for user {user_id} in chat {chat_id}")
-        await bot.set_chat_administrator_custom_title(
-            chat_id=chat_id,
-            user_id=user_id,
-            custom_title=tag
-        )
+        # 1. Attempt to call native aiogram set_chat_member_tag if available
+        if hasattr(bot, "set_chat_member_tag"):
+            try:
+                await bot.set_chat_member_tag(chat_id=chat_id, user_id=user_id, tag=tag)
+                logger.info("Successfully set member tag using native bot.set_chat_member_tag")
+                return
+            except Exception as native_err:
+                logger.warning(f"Native set_chat_member_tag failed, falling back to direct HTTP: {native_err}")
+
+        # 2. Robust fallback directly to Telegram Bot API endpoint
+        import aiohttp
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/setChatMemberTag"
+        payload = {
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "tag": tag
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as response:
+                result = await response.json()
+                if result.get("ok"):
+                    logger.info("Successfully set member tag using raw setChatMemberTag API")
+                else:
+                    logger.error(f"Raw setChatMemberTag API returned error: {result}")
     except Exception as e:
         logger.error(f"Error in custom_set_chat_member_tag for user {user_id}: {e}")
 
 bot.set_chat_member_tag = custom_set_chat_member_tag
+
+# In-memory cache to prevent redundant Telegram API calls
+last_assigned_tags = {}
 
 async def update_user_tag_if_needed(chat_id: int, user_id: int, member: types.ChatMember, level: int, ranks: list):
     rank_info = models.get_rank_for_level(level, ranks)
@@ -121,8 +124,14 @@ async def update_user_tag_if_needed(chat_id: int, user_id: int, member: types.Ch
         
     clean_tag = telegram_tag[:16] # absolute safety limit for custom titles
     
+    # Check cache first
+    cache_key = (chat_id, user_id)
+    if last_assigned_tags.get(cache_key) == clean_tag:
+        return
+        
     current_title = getattr(member, 'custom_title', None)
     if current_title == clean_tag:
+        last_assigned_tags[cache_key] = clean_tag
         return # Already set correctly
         
     await bot.set_chat_member_tag(
@@ -130,6 +139,8 @@ async def update_user_tag_if_needed(chat_id: int, user_id: int, member: types.Ch
         user_id=user_id,
         tag=clean_tag
     )
+    # Store in cache after successful update
+    last_assigned_tags[cache_key] = clean_tag
 
 def generate_progress_bar(xp, level):
     min_xp = models.xp_for_level(level)
